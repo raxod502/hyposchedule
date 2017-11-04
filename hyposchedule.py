@@ -4,6 +4,9 @@ import json
 import pprint
 import re
 
+def days_to_str(days):
+    return ''.join(sorted(days, lambda day: 'MTWRF'.index(day)))
+
 class HourMinute:
     def __init__(self, hours, minutes, pm):
         self.hours = hours % 12
@@ -41,28 +44,47 @@ class HourMinute:
     def __ge__(self, other):
         return self.compare(other) >= 0
 
+    def __str__(self):
+        return str(self.hours) + ':' + str(self.minutes)
+
+    def __repr__(self):
+        return 'HourMinute({}, {}, {})'.format(self.hours, self.minutes, False)
+
 class TimeBlock:
-    def __init__(self, begin, end):
+    def __init__(self, days, begin, end):
+        self.days = days
         self.begin = begin
         self.end = end
 
     def conflicts_with(self, other):
-        return not (self.end <= other.begin or self.begin >= other.end)
+        return self.days & other.days and not (self.end <= other.begin or self.begin >= other.end)
+
+    def __str__(self):
+        return str(self.begin) + ' - ' + str(self.end) + ' on ' + days_to_str(self.days)
+
+    def __repr__(self):
+        return 'TimeBlock({}, {}, {})'.format(self.days, self.begin, self.end)
 
 def parse_course_data(courses_filename):
-    courses_data = json.load(courses_filename)
+    with open(courses_filename) as courses_file:
+        courses_data = json.load(courses_file)
     courses = []
     for course_data in courses_data:
         course_name = course_data['name']
         data_blob = course_data['times']
         sections = []
         for line in data_blob.splitlines():
-            line_match = re.match(r'([A-Z]+)([0-9A-Z]+)\s+([A-Z]+)-([0-9]+)\s+\(([^\)]+)\):\s+(.+)')
+            line_match = re.match(
+                r'([A-Z]+)\s*([0-9A-Z]+)\s*(HM|PO|JM)-([0-9]+)\s+\(([^\)]+)\):\s+(.+)',
+                line)
             assert line_match, "Couldn't match line: " + line
             department, course_code, school, section_number, instructor, times_blob = line_match.groups()
             section_number = int(section_number)
             assert section_number >= 1
-            time_matches = times_blob.findall('([MTWRF]+)\s+([0-9]+):([0-9]+)\s*(AM|PM)\s+([0-9]+):([0-9]+)\s+(AM|PM);\s+([^,]+),\s+([^,]+),\s+([^,]+)')
+            time_matches = re.finditer(
+                r'([MTWRF]+)\s+([0-9]+):([0-9]+)\s*(AM|PM)?\s+-\s+([0-9]+):([0-9]+)\s+(AM|PM);\s+([^,]+),\s+([^,]+),\s+([^,]+)',
+                times_blob)
+            assert time_matches, "Couldn't match times: " + times_blob
             meetings = []
             for time_match in time_matches:
                 days, hours_begin, minutes_begin, ampm_begin, hours_end, minutes_end, ampm_end, campus, building, room = time_match.groups()
@@ -71,7 +93,7 @@ def parse_course_data(courses_filename):
                 minutes_begin = int(minutes_begin)
                 hours_end = int(hours_end)
                 minutes_end = int(minutes_end)
-                pm_begin = ampm_begin == 'PM'
+                pm_begin = (ampm_begin or ampm_end) == 'PM'
                 pm_end = ampm_end == 'PM'
                 assert 1 <= hours_begin <= 12
                 assert 0 <= minutes_begin <= 59
@@ -79,7 +101,7 @@ def parse_course_data(courses_filename):
                 assert 0 <= minutes_end <= 59
                 begin = HourMinute(hours_begin, minutes_begin, pm_begin)
                 end = HourMinute(hours_end, minutes_end, pm_end)
-                block = TimeBlock(begin, end)
+                block = TimeBlock(days, begin, end)
                 meeting = {
                     'campus': campus,
                     'building': building,
@@ -102,5 +124,8 @@ def parse_course_data(courses_filename):
         }
         courses.append(course)
     return courses
+
+# def filter_courses(all_courses, selected_courses, blacklist_courses):
+#     return [course for course in all_courses if ]
 
 pprint.pprint(parse_course_data('courses.json'))
