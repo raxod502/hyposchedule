@@ -2,6 +2,7 @@
 
 import collections
 import json
+import operator
 import re
 
 def days_to_str(days):
@@ -50,7 +51,7 @@ class HourMinute:
     def __str__(self):
         human_hours = ((self.hours - 1) % 12) + 1
         pm = self.hours >= 12
-        return '{}:{} {}'.format(human_hours, self.minutes, 'PM' if pm else 'AM')
+        return '{}:{:02d} {}'.format(human_hours, self.minutes, 'PM' if pm else 'AM')
 
     def __repr__(self):
         return 'HourMinute({}, {}, {})'.format(self.hours, self.minutes, False)
@@ -65,11 +66,6 @@ class TimeBlock:
         return self.days & other.days and not (self.end <= other.begin or self.begin >= other.end)
 
     def compare(self, other):
-        for day in 'MWTRF':
-            if day in self.days and day not in other.days:
-                return -1
-            elif day in other.days and day not in self.days:
-                return 1
         if self.begin < other.begin:
             return -1
         elif self.begin > other.begin:
@@ -79,6 +75,11 @@ class TimeBlock:
         elif self.end > other.end:
             return 1
         else:
+            for day in 'MWTRF':
+                if day in self.days and day not in other.days:
+                    return -1
+                elif day in other.days and day not in self.days:
+                    return 1
             return 0
 
     def __eq__(self, other):
@@ -314,14 +315,14 @@ def filter_sections(all_sections, selected_patterns, blacklisted_patterns):
 
 def sort_sections_by_block(sections):
     sections = sorted(sections)
-    groups = collections.OrderedDict()
+    groups = {}
     for section in sections:
         blocks = section.blocks()
         for idx, block in enumerate(blocks):
             if block not in groups:
                 groups[block] = []
             groups[block].append(SectionBlock(section, idx))
-    return groups
+    return collections.OrderedDict(sorted(groups.items(), key=operator.itemgetter(0)))
 
 def format_block(block):
     return '### {}'.format(block)
