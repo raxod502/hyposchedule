@@ -65,6 +65,24 @@ class TimeBlock:
     def __repr__(self):
         return 'TimeBlock({}, {}, {})'.format(self.days, self.begin, self.end)
 
+class Course:
+    def __init__(self, data):
+        self.data = data
+
+    def __getitem__(self, attr):
+        return self.data[attr]
+
+    def matches(self, pattern):
+        department, course_code, school, section_number = re.match(
+            r'([a-z]+)?\s*(?:([0-9]+)|\s)\s*(?:(hm|po|jm)|\s)\s*([0-9+])',
+            pattern.lower())
+        if section_number:
+            section_number = int(section_number)
+        return not (department and department != self.department or
+                    course_code and course_code != self.course_code or
+                    school and school != self.school or
+                    section_number and section_number != self.section_number)
+
 def parse_course_data(courses_filename):
     with open(courses_filename) as courses_file:
         courses_data = json.load(courses_file)
@@ -125,7 +143,53 @@ def parse_course_data(courses_filename):
         courses.append(course)
     return courses
 
-# def filter_courses(all_courses, selected_courses, blacklist_courses):
-#     return [course for course in all_courses if ]
+def parse_user_file(user_filename):
+    try:
+        with open(user_filename, 'r') as user_file:
+            return user_file.readlines()
+    except FileNotFoundError:
+        return []
 
-pprint.pprint(parse_course_data('courses.json'))
+def filter_courses(all_courses, selected_patterns, blacklisted_patterns):
+    selected_courses = []
+    for selected_pattern in selected_patterns:
+        matched_courses = []
+        for course in all_courses:
+            if course.matches(selected_pattern):
+                matched_courses.append(course)
+        if len(matched_courses) > 1:
+            raise AssertionError('Selected pattern {} matches ambiguously: {}'
+                                 .format(selected_pattern, matched_courses))
+        if len(matched_courses) < 1:
+            raise AssertionError('Selected pattern {} matches no courses'
+                                 .format(selected_pattern))
+        selected_courses.extend(matched_courses)
+    blacklisted_courses = []
+    for blacklisted_pattern in blacklisted_patterns:
+        matched_courses = []
+        for course in all_courses:
+            if course.matches(selected_pattern):
+                matched_courses.append(course)
+        if not matched_courses:
+            raise AssertionError('Blacklisted pattern {} matches no courses'
+                                 .format(blacklisted_pattern))
+        blacklisted_courses.extend(matched_courses)
+    courses = []
+    for course in all_courses:
+        if course in blacklisted_courses:
+            continue
+        conflicts = False
+        for selected_course in selected_courses:
+            if course.conflicts_with(selected_course):
+                conflicts = True
+                break
+        if not conflicts:
+            courses.append(course)
+    return courses
+
+all_courses = parse_course_data('courses.json')
+selected_patterns = parse_user_file('selected.txt')
+blacklisted_patterns = parse_user_file('blacklisted.txt')
+courses = filter_courses(all_courses, selected_patterns, blacklisted_patterns)
+
+pprint.pprint(courses)
