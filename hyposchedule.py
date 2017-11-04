@@ -347,8 +347,8 @@ def format_section_sections(section_groups):
         format_section_section(*item) for item in section_groups.items())
 
 all_sections = parse_course_data('courses.json')
-selected_patterns = parse_user_file('selected.txt')
-blacklisted_patterns = parse_user_file('blacklisted.txt')
+selected_patterns = parse_user_file('selected.in')
+blacklisted_patterns = parse_user_file('blacklisted.in')
 sections = filter_sections(all_sections, selected_patterns, blacklisted_patterns)
 section_groups = sort_sections_by_block(sections)
 
