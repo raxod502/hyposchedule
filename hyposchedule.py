@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 
 import collections
-import itertools
 import json
-import operator
-import pprint
 import re
 
 def days_to_str(days):
-    return ''.join(sorted(days, lambda day: 'MTWRF'.index(day)))
+    return ''.join(sorted(days, key=lambda day: 'MTWRF'.index(day)))
 
 class HourMinute:
     def __init__(self, hours, minutes, pm):
@@ -51,7 +48,9 @@ class HourMinute:
         return hash((self.hours, self.minutes))
 
     def __str__(self):
-        return str(self.hours) + ':' + str(self.minutes)
+        human_hours = ((self.hours - 1) % 12) + 1
+        pm = self.hours >= 12
+        return '{}:{} {}'.format(human_hours, self.minutes, 'PM' if pm else 'AM')
 
     def __repr__(self):
         return 'HourMinute({}, {}, {})'.format(self.hours, self.minutes, False)
@@ -66,7 +65,7 @@ class TimeBlock:
         return self.days & other.days and not (self.end <= other.begin or self.begin >= other.end)
 
     def compare(self, other):
-        for day in 'MTWRF':
+        for day in 'MWTRF':
             if day in self.days and day not in other.days:
                 return -1
             elif day in other.days and day not in self.days:
@@ -104,10 +103,10 @@ class TimeBlock:
         return hash((self.days, self.begin, self.end))
 
     def __str__(self):
-        return str(self.begin) + ' - ' + str(self.end) + ' on ' + days_to_str(self.days)
+        return '{} from {} to {}'.format(days_to_str(self.days), self.begin, self.end)
 
     def __repr__(self):
-        return 'TimeBlock({}, {}, {})'.format(self.days, self.begin, self.end)
+        return 'TimeBlock({}, {}, {})'.format(repr(self.days), repr(self.begin), repr(self.end))
 
 class Section:
     def __init__(self, data):
@@ -117,7 +116,12 @@ class Section:
         return self.data[attr]
 
     def __getattr__(self, attr):
-        return self.data[attr]
+        if attr == 'data':
+            return self.data
+        try:
+            return self.data[attr]
+        except KeyError:
+            return self.data.__getattribute__(attr)
 
     def matches(self, pattern):
         department, course_code, school, section_number = re.match(
@@ -141,7 +145,11 @@ class Section:
         return True
 
     def compare(self, other):
-        if self.department < other.department:
+        if self.blocks() < other.blocks():
+            return -1
+        elif self.blocks() > other.blocks():
+            return 1
+        elif self.department < other.department:
             return -1
         elif self.department > other.department:
             return 1
@@ -158,12 +166,7 @@ class Section:
         elif self.section_number > other.section_number:
             return 1
         else:
-            if self.blocks() < other.blocks():
-                return -1
-            elif self.blocks() > other.blocks():
-                return 1
-            else:
-                return 0
+            return 0
 
     def __eq__(self, other):
         return self.compare(other) == 0
@@ -183,22 +186,40 @@ class Section:
     def __ge__(self, other):
         return self.compare(other) >= 0
 
-    def __hash__(self):
-        return hash(sorted(self.data.items()))
+    def __str__(self):
+        return str(self.data)
+
+    def __repr__(self):
+        return 'Section({})'.format(repr(self.data))
+
+class SectionBlock:
+    def __init__(self, section, index):
+        meeting = section.meetings[index]
+        self.data = {**section, **meeting}
+        self.data['index'] = index
+        self.data['total'] = len(section.meetings)
+
+    def __getitem__(self, attr):
+        return self.data[attr]
+
+    def __getattr__(self, attr):
+        if attr == 'data':
+            return self.data
+        return self.data[attr]
 
     def __str__(self):
         return str(self.data)
 
     def __repr__(self):
-        return repr(self.data)
+        return 'SectionBlock({})'.format(repr(self.data))
 
 def parse_course_data(courses_filename):
     with open(courses_filename) as courses_file:
         courses_data = json.load(courses_file)
+    sections = []
     for course_data in courses_data:
         course_name = course_data['name']
         data_blob = course_data['times']
-        sections = []
         for line in data_blob.splitlines():
             line_match = re.match(
                 r'([A-Z]+)\s*([0-9A-Z]+)\s*(HM|PO|JM)-([0-9]+)\s+\(([^\)]+)\):\s+(.+)',
@@ -296,15 +317,38 @@ def sort_sections_by_block(sections):
     groups = collections.OrderedDict()
     for section in sections:
         blocks = section.blocks()
-        total = len(blocks)
         for idx, block in enumerate(blocks):
             if block not in groups:
                 groups[block] = []
-            groups[block].append((idx, total, section))
+            groups[block].append(SectionBlock(section, idx))
     return groups
+
+def format_block(block):
+    return '### {}'.format(block)
+
+def format_section_block(section_block):
+    return '* {} {} {}-{:02d} {}{}'.format(
+        section_block.department,
+        section_block.course_code.zfill(3),
+        section_block.school,
+        section_block.section_number,
+        section_block.course_name,
+        ' [{}/{}]'.format(section_block.index + 1, section_block.total)
+        if section_block.total > 1 else '',)
+
+def format_section_section(block, section_blocks):
+    return (format_block(block) + '\n\n' +
+            '\n'.join(format_section_block(section_block)
+                      for section_block in section_blocks))
+
+def format_section_sections(section_groups):
+    return '\n\n'.join(
+        format_section_section(*item) for item in section_groups.items())
 
 all_sections = parse_course_data('courses.json')
 selected_patterns = parse_user_file('selected.txt')
 blacklisted_patterns = parse_user_file('blacklisted.txt')
 sections = filter_sections(all_sections, selected_patterns, blacklisted_patterns)
-sorted_sections = sort_sections_by_block(sections)
+section_groups = sort_sections_by_block(sections)
+
+print(format_section_sections(section_groups))
