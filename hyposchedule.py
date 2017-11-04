@@ -146,11 +146,7 @@ class Section:
         return True
 
     def compare(self, other):
-        if self.blocks() < other.blocks():
-            return -1
-        elif self.blocks() > other.blocks():
-            return 1
-        elif self.department < other.department:
+        if self.department < other.department:
             return -1
         elif self.department > other.department:
             return 1
@@ -165,6 +161,10 @@ class Section:
         elif self.section_number < other.section_number:
             return -1
         elif self.section_number > other.section_number:
+            return 1
+        elif self.blocks() < other.blocks():
+            return -1
+        elif self.blocks() > other.blocks():
             return 1
         else:
             return 0
@@ -208,6 +208,38 @@ class SectionBlock:
             return self.data
         return self.data[attr]
 
+    def blocks(self):
+        return Section.blocks(self)
+
+    def compare(self, other):
+        num = Section.compare(self, other)
+        if num == 0:
+            if self.index < other.index:
+                return -1
+            elif self.index > other.index:
+                return 1
+            return 0
+        else:
+            return num
+
+    def __eq__(self, other):
+        return self.compare(other) == 0
+
+    def __ne__(self, other):
+        return self.compare(other) != 0
+
+    def __lt__(self, other):
+        return self.compare(other) < 0
+
+    def __gt__(self, other):
+        return self.compare(other) > 0
+
+    def __le__(self, other):
+        return self.compare(other) <= 0
+
+    def __ge__(self, other):
+        return self.compare(other) >= 0
+
     def __str__(self):
         return str(self.data)
 
@@ -223,7 +255,7 @@ def parse_course_data(courses_filename):
         data_blob = course_data['times']
         for line in data_blob.splitlines():
             line_match = re.match(
-                r'([A-Z]+)\s*([0-9A-Z]+)\s*(HM|PO|JM)-([0-9]+)\s+\(([^\)]+)\):\s+(.+)',
+                r'([A-Z]+)\s*([0-9A-Z]+)\s*(AF|CH|CM|HM|JM|JP|PO|PZ|SC)-([0-9]+)\s+\(([^\)]+)\):\s+(.*)',
                 line)
             assert line_match, "Couldn't match line: " + line
             department, course_code, school, section_number, instructor, times_blob = line_match.groups()
@@ -314,7 +346,6 @@ def filter_sections(all_sections, selected_patterns, blacklisted_patterns):
     return sections
 
 def sort_sections_by_block(sections):
-    sections = sorted(sections)
     groups = {}
     for section in sections:
         blocks = section.blocks()
@@ -322,6 +353,8 @@ def sort_sections_by_block(sections):
             if block not in groups:
                 groups[block] = []
             groups[block].append(SectionBlock(section, idx))
+    for block in groups:
+        groups[block].sort()
     return collections.OrderedDict(sorted(groups.items(), key=operator.itemgetter(0)))
 
 def format_block(block):
