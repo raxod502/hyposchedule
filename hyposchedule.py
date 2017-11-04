@@ -6,7 +6,7 @@ import operator
 import re
 
 def days_to_str(days):
-    return ''.join(sorted(days, key=lambda day: 'MTWRF'.index(day)))
+    return ''.join(sorted(days, key=lambda day: 'MTWRFSU'.index(day)))
 
 class HourMinute:
     def __init__(self, hours, minutes, pm):
@@ -75,7 +75,7 @@ class TimeBlock:
         elif self.end > other.end:
             return 1
         else:
-            for day in 'MWTRF':
+            for day in 'MWTRFSU':
                 if day in self.days and day not in other.days:
                     return -1
                 elif day in other.days and day not in self.days:
@@ -230,7 +230,7 @@ def parse_course_data(courses_filename):
             section_number = int(section_number)
             assert section_number >= 1
             time_matches = re.finditer(
-                r'([MTWRF]+)\s+([0-9]+):([0-9]+)\s*(AM|PM)?\s+-\s+([0-9]+):([0-9]+)\s+(AM|PM);\s+([^,]+),\s+([^,]+),\s+([^,]+)',
+                r'([MTWRFSU]+)\s+([0-9]+):([0-9]+)\s*(AM|PM)?\s+-\s+([0-9]+):([0-9]+)\s+(AM|PM);\s+([^,]+),\s+([^,]+),\s+([^,]+)',
                 times_blob)
             assert time_matches, "Couldn't match times: " + times_blob
             meetings = []
