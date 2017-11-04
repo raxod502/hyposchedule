@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
+import collections
+import itertools
 import json
+import operator
 import pprint
 import re
 
@@ -44,6 +47,9 @@ class HourMinute:
     def __ge__(self, other):
         return self.compare(other) >= 0
 
+    def __hash__(self):
+        return hash((self.hours, self.minutes))
+
     def __str__(self):
         return str(self.hours) + ':' + str(self.minutes)
 
@@ -59,22 +65,63 @@ class TimeBlock:
     def conflicts_with(self, other):
         return self.days & other.days and not (self.end <= other.begin or self.begin >= other.end)
 
+    def compare(self, other):
+        for day in 'MTWRF':
+            if day in self.days and day not in other.days:
+                return -1
+            elif day in other.days and day not in self.days:
+                return 1
+        if self.begin < other.begin:
+            return -1
+        elif self.begin > other.begin:
+            return 1
+        elif self.end < other.end:
+            return -1
+        elif self.end > other.end:
+            return 1
+        else:
+            return 0
+
+    def __eq__(self, other):
+        return self.compare(other) == 0
+
+    def __ne__(self, other):
+        return self.compare(other) != 0
+
+    def __lt__(self, other):
+        return self.compare(other) < 0
+
+    def __gt__(self, other):
+        return self.compare(other) > 0
+
+    def __le__(self, other):
+        return self.compare(other) <= 0
+
+    def __ge__(self, other):
+        return self.compare(other) >= 0
+
+    def __hash__(self):
+        return hash((self.days, self.begin, self.end))
+
     def __str__(self):
         return str(self.begin) + ' - ' + str(self.end) + ' on ' + days_to_str(self.days)
 
     def __repr__(self):
         return 'TimeBlock({}, {}, {})'.format(self.days, self.begin, self.end)
 
-class Course:
+class Section:
     def __init__(self, data):
         self.data = data
 
     def __getitem__(self, attr):
         return self.data[attr]
 
+    def __getattr__(self, attr):
+        return self.data[attr]
+
     def matches(self, pattern):
         department, course_code, school, section_number = re.match(
-            r'([a-z]+)?\s*(?:([0-9]+)|\s)\s*(?:(hm|po|jm)|\s)\s*([0-9+])',
+            r'([a-z]+)?\s*(?:([0-9]+)|\s)\s*(?:(hm|po|jm)|\s)(?:\s*|-)([0-9+])',
             pattern.lower())
         if section_number:
             section_number = int(section_number)
@@ -83,10 +130,71 @@ class Course:
                     school and school != self.school or
                     section_number and section_number != self.section_number)
 
+    def blocks(self):
+        return [meeting['block'] for meeting in self.meetings]
+
+    def conflicts_with(self, other):
+        for my_meeting in self.meetings:
+            for other_meeting in other.meetings:
+                if my_meeting['block'].conflicts_with(other_meeting['block']):
+                    return False
+        return True
+
+    def compare(self, other):
+        if self.department < other.department:
+            return -1
+        elif self.department > other.department:
+            return 1
+        elif self.course_code < other.course_code:
+            return -1
+        elif self.course_code > other.course_code:
+            return 1
+        elif self.school < other.school:
+            return -1
+        elif self.school > other.school:
+            return 1
+        elif self.section_number < other.section_number:
+            return -1
+        elif self.section_number > other.section_number:
+            return 1
+        else:
+            if self.blocks() < other.blocks():
+                return -1
+            elif self.blocks() > other.blocks():
+                return 1
+            else:
+                return 0
+
+    def __eq__(self, other):
+        return self.compare(other) == 0
+
+    def __ne__(self, other):
+        return self.compare(other) != 0
+
+    def __lt__(self, other):
+        return self.compare(other) < 0
+
+    def __gt__(self, other):
+        return self.compare(other) > 0
+
+    def __le__(self, other):
+        return self.compare(other) <= 0
+
+    def __ge__(self, other):
+        return self.compare(other) >= 0
+
+    def __hash__(self):
+        return hash(sorted(self.data.items()))
+
+    def __str__(self):
+        return str(self.data)
+
+    def __repr__(self):
+        return repr(self.data)
+
 def parse_course_data(courses_filename):
     with open(courses_filename) as courses_file:
         courses_data = json.load(courses_file)
-    courses = []
     for course_data in courses_data:
         course_name = course_data['name']
         data_blob = course_data['times']
@@ -106,7 +214,7 @@ def parse_course_data(courses_filename):
             meetings = []
             for time_match in time_matches:
                 days, hours_begin, minutes_begin, ampm_begin, hours_end, minutes_end, ampm_end, campus, building, room = time_match.groups()
-                days = set(days)
+                days = frozenset(days)
                 hours_begin = int(hours_begin)
                 minutes_begin = int(minutes_begin)
                 hours_end = int(hours_end)
@@ -128,20 +236,16 @@ def parse_course_data(courses_filename):
                 }
                 meetings.append(meeting)
             section = {
+                'course_name': course_name,
                 'department': department,
                 'course_code': course_code,
                 'school': school,
                 'section_number': section_number,
                 'instructor': instructor,
-                'meetings': meetings
+                'meetings': sorted(meetings, key=lambda meeting: meeting['block'])
             }
-            sections.append(section)
-        course = {
-            'course_name': course_name,
-            'sections': sections,
-        }
-        courses.append(course)
-    return courses
+            sections.append(Section(section))
+    return sections
 
 def parse_user_file(user_filename):
     try:
@@ -150,46 +254,57 @@ def parse_user_file(user_filename):
     except FileNotFoundError:
         return []
 
-def filter_courses(all_courses, selected_patterns, blacklisted_patterns):
-    selected_courses = []
+def filter_sections(all_sections, selected_patterns, blacklisted_patterns):
+    selected_sections = []
     for selected_pattern in selected_patterns:
-        matched_courses = []
-        for course in all_courses:
-            if course.matches(selected_pattern):
-                matched_courses.append(course)
-        if len(matched_courses) > 1:
+        matched_sections = []
+        for section in all_sections:
+            if section.matches(selected_pattern):
+                matched_sections.append(section)
+        if len(matched_sections) > 1:
             raise AssertionError('Selected pattern {} matches ambiguously: {}'
-                                 .format(selected_pattern, matched_courses))
-        if len(matched_courses) < 1:
-            raise AssertionError('Selected pattern {} matches no courses'
+                                 .format(selected_pattern, matched_sections))
+        if len(matched_sections) < 1:
+            raise AssertionError('Selected pattern {} matches no sections'
                                  .format(selected_pattern))
-        selected_courses.extend(matched_courses)
-    blacklisted_courses = []
+        selected_sections.extend(matched_sections)
+    blacklisted_sections = []
     for blacklisted_pattern in blacklisted_patterns:
-        matched_courses = []
-        for course in all_courses:
-            if course.matches(selected_pattern):
-                matched_courses.append(course)
-        if not matched_courses:
-            raise AssertionError('Blacklisted pattern {} matches no courses'
+        matched_sections = []
+        for section in all_sections:
+            if section.matches(selected_pattern):
+                matched_sections.append(section)
+        if not matched_sections:
+            raise AssertionError('Blacklisted pattern {} matches no sections'
                                  .format(blacklisted_pattern))
-        blacklisted_courses.extend(matched_courses)
-    courses = []
-    for course in all_courses:
-        if course in blacklisted_courses:
+        blacklisted_sections.extend(matched_sections)
+    sections = []
+    for section in all_sections:
+        if section in blacklisted_sections:
             continue
         conflicts = False
-        for selected_course in selected_courses:
-            if course.conflicts_with(selected_course):
+        for selected_section in selected_sections:
+            if section.conflicts_with(selected_section):
                 conflicts = True
                 break
         if not conflicts:
-            courses.append(course)
-    return courses
+            sections.append(section)
+    return sections
 
-all_courses = parse_course_data('courses.json')
+def sort_sections_by_block(sections):
+    sections = sorted(sections)
+    groups = collections.OrderedDict()
+    for section in sections:
+        blocks = section.blocks()
+        total = len(blocks)
+        for idx, block in enumerate(blocks):
+            if block not in groups:
+                groups[block] = []
+            groups[block].append((idx, total, section))
+    return groups
+
+all_sections = parse_course_data('courses.json')
 selected_patterns = parse_user_file('selected.txt')
 blacklisted_patterns = parse_user_file('blacklisted.txt')
-courses = filter_courses(all_courses, selected_patterns, blacklisted_patterns)
-
-pprint.pprint(courses)
+sections = filter_sections(all_sections, selected_patterns, blacklisted_patterns)
+sorted_sections = sort_sections_by_block(sections)
