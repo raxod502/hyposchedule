@@ -125,14 +125,17 @@ class Section:
             return self.data.__getattribute__(attr)
 
     def matches(self, pattern):
-        department, course_code, school, section_number = re.match(
-            r'([a-z]+)?\s*(?:([0-9]+)|\s)\s*(?:(hm|po|jm)|\s)(?:\s*|-)([0-9+])',
+        match = re.match(
+            r'([a-z]+)?\s*(?:([0-9]+)?|\s)\s*(?:(hm|po|jm)?|\s)(?:\s*|-)([0-9+])?',
             pattern.lower())
+        if not match:
+            return False
+        department, course_code, school, section_number = match.groups()
         if section_number:
             section_number = int(section_number)
-        return not (department and department != self.department or
-                    course_code and course_code != self.course_code or
-                    school and school != self.school or
+        return not (department and not self.department.lower().startswith(department) or
+                    course_code and course_code != self.course_code.lower() or
+                    school and school != self.school.lower() or
                     section_number and section_number != self.section_number)
 
     def blocks(self):
@@ -142,8 +145,8 @@ class Section:
         for my_meeting in self.meetings:
             for other_meeting in other.meetings:
                 if my_meeting['block'].conflicts_with(other_meeting['block']):
-                    return False
-        return True
+                    return True
+        return False
 
     def compare(self, other):
         if self.department < other.department:
@@ -188,7 +191,11 @@ class Section:
         return self.compare(other) >= 0
 
     def __str__(self):
-        return str(self.data)
+        blocks_str = '; '.join(str(block) for block in self.blocks())
+        return '{} {} {}-{:02d} "{}"{}'.format(
+            self.department, self.course_code.zfill(3),
+            self.school, self.section_number, self.course_name,
+            ' ({})'.format(blocks_str) if blocks_str else '')
 
     def __repr__(self):
         return 'Section({})'.format(repr(self.data))
@@ -304,7 +311,12 @@ def parse_course_data(courses_filename):
 def parse_user_file(user_filename):
     try:
         with open(user_filename, 'r') as user_file:
-            return user_file.readlines()
+            lines = []
+            for line in user_file.read().splitlines():
+                line = line.strip()
+                if line and not line.startswith('//') and not line.startswith('#') and not line.startswith('%'):
+                    lines.append(line)
+            return lines
     except FileNotFoundError:
         return []
 
@@ -316,25 +328,29 @@ def filter_sections(all_sections, selected_patterns, blacklisted_patterns):
             if section.matches(selected_pattern):
                 matched_sections.append(section)
         if len(matched_sections) > 1:
-            raise AssertionError('Selected pattern {} matches ambiguously: {}'
-                                 .format(selected_pattern, matched_sections))
+            raise AssertionError('Selected pattern "{}" matches ambiguously: {}'
+                                 .format(selected_pattern,
+                                         '; '.join(map(str, matched_sections))))
         if len(matched_sections) < 1:
-            raise AssertionError('Selected pattern {} matches no sections'
+            raise AssertionError('Selected pattern "{}" matches no sections'
                                  .format(selected_pattern))
+        for matched_section in matched_sections:
+            print('Selected {}'.format(matched_section))
         selected_sections.extend(matched_sections)
     blacklisted_sections = []
     for blacklisted_pattern in blacklisted_patterns:
         matched_sections = []
         for section in all_sections:
-            if section.matches(selected_pattern):
+            if section.matches(blacklisted_pattern):
                 matched_sections.append(section)
         if not matched_sections:
-            raise AssertionError('Blacklisted pattern {} matches no sections'
+            raise AssertionError('Blacklisted pattern "{}" matches no sections'
                                  .format(blacklisted_pattern))
         blacklisted_sections.extend(matched_sections)
     sections = []
     for section in all_sections:
         if section in blacklisted_sections:
+            print('Blacklisted {}'.format(section))
             continue
         conflicts = False
         for selected_section in selected_sections:
@@ -385,4 +401,6 @@ blacklisted_patterns = parse_user_file('blacklisted.in')
 sections = filter_sections(all_sections, selected_patterns, blacklisted_patterns)
 section_groups = sort_sections_by_block(sections)
 
-print(format_section_sections(section_groups))
+output = format_section_sections(section_groups)
+with open('plan.out', 'w') as f:
+    f.write(output)
