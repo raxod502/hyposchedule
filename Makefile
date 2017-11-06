@@ -1,10 +1,12 @@
+out_files := plan.out inverse-plan.out sections.out inverse-sections.out
+
 .PHONY: all
-all: plan.out courses-pretty.json
+all: $(out_files) courses-pretty.json
 
 .PHONY: clean
 clean:
 	@rm -f courses-pretty.json
-	@rm -f plan.out
+	@rm -f $(out_files)
 
 courses.json:
 	@echo "Please create courses.json first"
@@ -19,5 +21,5 @@ blacklisted.in:
 selected.in:
 	@touch selected.in
 
-plan.out: hyposchedule.py courses.json blacklisted.in selected.in
+$(out_files): hyposchedule.py courses.json blacklisted.in selected.in
 	@./hyposchedule.py

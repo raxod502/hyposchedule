@@ -1,7 +1,4 @@
-/courses.json
-/courses-pretty.json
+*.json
 
-/blacklisted.in
-/selected.in
-
-/plan.out
+*.in
+*.out

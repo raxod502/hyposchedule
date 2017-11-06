@@ -134,7 +134,7 @@ class Section:
         if section_number:
             section_number = int(section_number)
         return not (department and not self.department.lower().startswith(department) or
-                    course_code and course_code != self.course_code.lower() or
+                    course_code and course_code != self.course_code.lstrip('0').lower() or
                     school and school != self.school.lower() or
                     section_number and section_number != self.section_number)
 
@@ -348,6 +348,7 @@ def filter_sections(all_sections, selected_patterns, blacklisted_patterns):
                                  .format(blacklisted_pattern))
         blacklisted_sections.extend(matched_sections)
     sections = []
+    inverse_sections = []
     for section in all_sections:
         if section in blacklisted_sections:
             print('Blacklisted {}'.format(section))
@@ -355,11 +356,12 @@ def filter_sections(all_sections, selected_patterns, blacklisted_patterns):
         conflicts = False
         for selected_section in selected_sections:
             if section.conflicts_with(selected_section):
+                inverse_sections.append(section)
                 conflicts = True
                 break
         if not conflicts:
             sections.append(section)
-    return sections
+    return sections, inverse_sections
 
 def sort_sections_by_block(sections):
     groups = {}
@@ -395,12 +397,27 @@ def format_section_sections(section_groups):
     return '\n\n'.join(
         format_section_section(*item) for item in section_groups.items())
 
+def format_sections(sections):
+    return '\n'.join(map(str, sections))
+
 all_sections = parse_course_data('courses.json')
+
 selected_patterns = parse_user_file('selected.in')
 blacklisted_patterns = parse_user_file('blacklisted.in')
-sections = filter_sections(all_sections, selected_patterns, blacklisted_patterns)
-section_groups = sort_sections_by_block(sections)
 
-output = format_section_sections(section_groups)
-with open('plan.out', 'w') as f:
-    f.write(output)
+sections, inverse_sections = filter_sections(all_sections, selected_patterns, blacklisted_patterns)
+
+section_groups = sort_sections_by_block(sections)
+inverse_section_groups = sort_sections_by_block(inverse_sections)
+
+output = {
+    'plan': format_section_sections(section_groups),
+    'inverse-plan': format_section_sections(inverse_section_groups),
+    'sections': format_sections(sorted(sections)),
+    'inverse-sections': format_sections(sorted(inverse_sections)),
+}
+
+for filename, text in output.items():
+    with open(filename + '.out', 'w') as f:
+        f.write(text)
+        f.write('\n')
